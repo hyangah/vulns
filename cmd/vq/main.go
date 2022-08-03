@@ -21,11 +21,13 @@ const usageHdr = `vq: simple vulndb lookup tool
 
 Usage:
   vq id <osv-entry-id>
+
   vq mod module[@version]
+     for vulnerabilities in standard libraries, use 'stdlib'
+	 as the module name.
 
 Environments:
   GOVULNDB: vulnerability database. (default: https://vuln.go.dev)
-  GOVERSION: standard library version to search. (default: version returned by "go env GOVERSION")
 `
 
 func usage() {
@@ -195,6 +197,9 @@ func byID(ctx context.Context, cli client.Client, ids ...string) (res [][]*osv.E
 func byModule(ctx context.Context, cli client.Client, mods ...string) (res [][]*osv.Entry, _ error) {
 	for _, mod := range mods {
 		name, ver, found := strings.Cut(mod, "@")
+		if name == "stdlib" && strings.HasPrefix(ver, "go") {
+			ver = "v" + ver[2:]
+		}
 		e, err := cli.GetByModule(ctx, name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to lookup info for %q: %v", mod, err)
