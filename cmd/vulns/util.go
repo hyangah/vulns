@@ -129,9 +129,10 @@ func fetchOSVEntries(ctx context.Context, cli client.Client, pkgs []*packages.Pa
 		var vulns []*osv.Entry
 		for _, v := range mod2OSV[modKey(m)] {
 			for _, a := range v.Affected {
-				if a.Package.Name == pkg.PkgPath {
-					vulns = append(vulns, v)
-					break
+				for _, p := range a.EcosystemSpecific.Imports {
+					if p.Path == pkg.PkgPath {
+						vulns = append(vulns, v)
+					}
 				}
 			}
 		}
@@ -180,20 +181,34 @@ func filterOSVEntries(module *packages.Module, vulns []*osv.Entry) []*osv.Entry 
 			// A module version is affected if
 			//  - it is included in one of the affected version ranges
 			//  - and module version is not ""
-			//  The latter means the module version is not available, so
-			//  we don't want to spam users with potential false alarms.
-			//  TODO: issue warning for "" cases above?
-			affected := modVersion != "" && a.Ranges.AffectsSemver(modVersion) && matchesPlatform(goos, goarch, a.EcosystemSpecific)
-			if affected {
-				filteredAffected = append(filteredAffected, a)
+			if modVersion == "" {
+				// Module version of "" means the module version is not available,
+				// and so we don't want to spam users with potential false alarms.
+				// TODO: issue warning for "" cases above?
+				continue
 			}
+			if !a.Ranges.AffectsSemver(modVersion) {
+				continue
+			}
+			var filteredImports []osv.EcosystemSpecificImport
+			for _, p := range a.EcosystemSpecific.Imports {
+				if matchesPlatform(goos, goarch, p) {
+					filteredImports = append(filteredImports, p)
+				}
+			}
+			if len(a.EcosystemSpecific.Imports) != 0 && len(filteredImports) == 0 {
+				continue
+			}
+			a.EcosystemSpecific.Imports = filteredImports
+			filteredAffected = append(filteredAffected, a)
 		}
+
 		if len(filteredAffected) == 0 {
 			continue
 		}
 		// save the non-empty vulnerability with only
 		// affected symbols.
-		newV := *v // narrow copy
+		newV := *v
 		newV.Affected = filteredAffected
 		filteredVulns = append(filteredVulns, &newV)
 	}
@@ -207,7 +222,7 @@ func lookupEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func matchesPlatform(os, arch string, e osv.EcosystemSpecific) bool {
+func matchesPlatform(os, arch string, e osv.EcosystemSpecificImport) bool {
 	matchesOS := len(e.GOOS) == 0
 	matchesArch := len(e.GOARCH) == 0
 	for _, o := range e.GOOS {

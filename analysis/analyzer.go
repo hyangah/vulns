@@ -448,10 +448,11 @@ func dbFuncName(f *types.Func) string {
 func affectedSymbols(pkg string, v *osv.Entry) []string {
 	var syms []string
 	for _, a := range v.Affected {
-		if a.Package.Ecosystem != osv.GoEcosystem && a.Package.Name != pkg {
-			continue
+		for _, p := range a.EcosystemSpecific.Imports {
+			if p.Path == pkg {
+				syms = append(syms, p.Symbols...)
+			}
 		}
-		syms = append(syms, a.EcosystemSpecific.Symbols...)
 		// TODO: should we use GOOS/GOARCH???
 	}
 	return syms

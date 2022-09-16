@@ -105,14 +105,16 @@ func toText(keys []string, res [][]*osv.Entry) {
 
 			fmt.Println(e.Details)
 			for _, affecting := range e.Affected {
-				fmt.Println("Package:", affecting.Package.Name)
-				fmt.Println("Range  :", rangesToText(isStdPackage(affecting.Package.Name), affecting.Ranges))
-				fmt.Println("Symbols:", strings.Join(affecting.EcosystemSpecific.Symbols, ", "))
-				if goos := affecting.EcosystemSpecific.GOOS; len(goos) > 0 {
-					fmt.Println("GOOS   :", strings.Join(goos, ", "))
-				}
-				if goarch := affecting.EcosystemSpecific.GOARCH; len(goarch) > 0 {
-					fmt.Println("GOARCH  :", strings.Join(goarch, ", "))
+				for _, p := range affecting.EcosystemSpecific.Imports {
+					fmt.Println("Package:", p.Path)
+					fmt.Println("Range  :", rangesToText(isStdPackage(affecting.Package.Name), affecting.Ranges))
+					fmt.Println("Symbols:", strings.Join(p.Symbols, ", "))
+					if goos := p.GOOS; len(goos) > 0 {
+						fmt.Println("GOOS   :", strings.Join(goos, ", "))
+					}
+					if goarch := p.GOARCH; len(goarch) > 0 {
+						fmt.Println("GOARCH  :", strings.Join(goarch, ", "))
+					}
 				}
 			}
 		}
