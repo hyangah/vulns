@@ -248,7 +248,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			for ref := range refs {
 				sortedRefs = append(sortedRefs, ref)
 			}
-			// sort for stable iteration. Is there any better sorting function?
+			// TODO: sort for stable iteration. Is there any better sorting function?
 			sort.Slice(sortedRefs, func(i, j int) bool { return sortedRefs[i].Id() < sortedRefs[j].Id() })
 			for _, ref := range sortedRefs {
 				res = append(res, ref)
@@ -458,7 +458,7 @@ func dbFuncName(f *types.Func) string {
 }
 
 func affectedSymbols(pkg string, v *osv.Entry) []string {
-	// TODO: memoize
+	// TODO: memoize?
 	var syms []string
 	for _, a := range v.Affected {
 		for _, p := range a.EcosystemSpecific.Imports {

@@ -252,7 +252,7 @@ func isStdPackage(pkg string) bool {
 	return !strings.Contains(pkg, ".")
 }
 
-func normalizeOSVEntries(mod *packages.Module, vulns []*osv.Entry) []*osv.Entry {
+func normalizeOSVEntries(_ *packages.Module, vulns []*osv.Entry) []*osv.Entry {
 	for _, v := range vulns {
 		// osv entry's details has many arbitrarilily place new line breaks. Remove them.
 		// TODO(hyangah): file an issue to vulnDB?
