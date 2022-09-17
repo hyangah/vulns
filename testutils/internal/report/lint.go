@@ -5,12 +5,8 @@
 package report
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -18,96 +14,9 @@ import (
 	"github.com/hyangah/vulns/testutils/internal/stdlib"
 
 	"golang.org/x/exp/slices"
-	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 )
-
-// TODO: getting things from the proxy should all be cached so we
-// aren't re-requesting the same stuff over and over.
-
-var proxyURL = "https://proxy.golang.org"
-
-func init() {
-	if proxy, ok := os.LookupEnv("GOPROXY"); ok {
-		proxyURL = proxy
-	}
-}
-
-func proxyLookup(urlSuffix string) ([]byte, error) {
-	url := fmt.Sprintf("%s/%s", proxyURL, urlSuffix)
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	} else if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("http.Get(%q) returned status %v", url, resp.Status)
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-func getModVersionsFromProxy(path string) (_ map[string]bool, err error) {
-	escaped, err := module.EscapePath(path)
-	if err != nil {
-		return nil, err
-	}
-	b, err := proxyLookup(fmt.Sprintf("%s/@v/list", escaped))
-	if err != nil {
-		return nil, err
-	}
-	versions := map[string]bool{}
-	for _, v := range strings.Split(string(b), "\n") {
-		versions[v] = true
-	}
-	return versions, nil
-}
-
-func getCanonicalModNameFromProxy(path, version string) (_ string, err error) {
-	escapedPath, err := module.EscapePath(path)
-	if err != nil {
-		return "", err
-	}
-	escapedVersion, err := module.EscapeVersion(version)
-	if err != nil {
-		return "", err
-	}
-	b, err := proxyLookup(fmt.Sprintf("%s/@v/%s.mod", escapedPath, escapedVersion))
-	if err != nil {
-		return "", err
-	}
-	m, err := modfile.ParseLax("go.mod", b, nil)
-	if err != nil {
-		return "", err
-	}
-	if m.Module == nil {
-		return "", fmt.Errorf("unable to retrieve module information for %s", path)
-	}
-	return m.Module.Mod.Path, nil
-}
-
-func getCanonicalModVersionFromProxy(path, version string) (_ string, err error) {
-	escaped, err := module.EscapePath(path)
-	if err != nil {
-		return "", err
-	}
-	b, err := proxyLookup(fmt.Sprintf("%s/@v/%v.info", escaped, version))
-	if err != nil {
-		return "", err
-	}
-	var v map[string]any
-	if err := json.Unmarshal(b, &v); err != nil {
-		return "", err
-	}
-	ver, ok := v["Version"].(string)
-	if !ok {
-		return "", fmt.Errorf("unable to retrieve canonical version for %s", version)
-	}
-	return ver, nil
-}
 
 var pseudoVersionRE = regexp.MustCompile(`^v[0-9]+\.(0\.0-|\d+\.\d+-([^+]*\.)?0\.)\d{14}-[A-Za-z0-9]+(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
 
@@ -136,40 +45,6 @@ func versionExists(version string, versions map[string]bool) (err error) {
 	return nil
 }
 
-func checkModVersions(modPath string, vrs []VersionRange) (err error) {
-	foundVersions, err := getModVersionsFromProxy(modPath)
-	if err != nil {
-		return fmt.Errorf("unable to retrieve module versions from proxy: %s", err)
-	}
-	checkVersion := func(v Version) error {
-		if v == "" {
-			return nil
-		}
-		if err := module.Check(modPath, v.V()); err != nil {
-			return err
-		}
-		if err := versionExists(v.V(), foundVersions); err != nil {
-			return err
-		}
-		canonicalPath, err := getCanonicalModNameFromProxy(modPath, v.V())
-		if err != nil {
-			return fmt.Errorf("unable to retrieve canonical module path from proxy: %s", err)
-		}
-		if canonicalPath != modPath {
-			return fmt.Errorf("invalid module path %q at version %q (canonical path is %q)", modPath, v, canonicalPath)
-		}
-		return nil
-	}
-	for _, vr := range vrs {
-		for _, v := range []Version{vr.Introduced, vr.Fixed} {
-			if err := checkVersion(v); err != nil {
-				return fmt.Errorf("bad version %q: %s", v, err)
-			}
-		}
-	}
-	return nil
-}
-
 func (m *Module) lintStdLib(addPkgIssue func(string)) {
 	if len(m.Packages) == 0 {
 		addPkgIssue("missing package")
@@ -185,9 +60,6 @@ func (m *Module) lintThirdParty(addPkgIssue func(string)) {
 	if m.Module == "" {
 		addPkgIssue("missing module")
 		return
-	}
-	if err := checkModVersions(m.Module, m.Versions); err != nil {
-		addPkgIssue(err.Error())
 	}
 	for _, p := range m.Packages {
 		if p.Package == "" {
@@ -410,11 +282,6 @@ func (r *Report) Fix() {
 		v := *vp
 		if v == "" {
 			return
-		}
-		if commitHashRegex.MatchString(string(v)) {
-			if c, err := getCanonicalModVersionFromProxy(mod, string(v)); err == nil {
-				v = Version(c)
-			}
 		}
 		v = Version(strings.TrimPrefix(string(v), "v"))
 		v = Version(strings.TrimPrefix(string(v), "go"))
