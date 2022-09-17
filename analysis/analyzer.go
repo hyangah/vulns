@@ -16,6 +16,7 @@ import (
 	"go/types"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -243,7 +244,13 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	succs := func(obj types.Object) (res []types.Object) {
 		// Return the refs within the body of a func/type/var.
 		if refs := refs[obj]; refs != nil {
-			for ref := range refs { // TODO: stable iteration order.
+			sortedRefs := make([]types.Object, 0, len(refs))
+			for ref := range refs {
+				sortedRefs = append(sortedRefs, ref)
+			}
+			// sort for stable iteration. Is there any better sorting function?
+			sort.Slice(sortedRefs, func(i, j int) bool { return sortedRefs[i].Id() < sortedRefs[j].Id() })
+			for _, ref := range sortedRefs {
 				res = append(res, ref)
 			}
 		}
@@ -288,7 +295,8 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				// obj itself is vulnerable.
 				o := []string{format(obj)}
 				for _, v := range vulns {
-					path[v] = o
+					k := v + ":" + o[0]
+					path[k] = o
 				}
 			} else if fact := (&vulnFact{}); pass.ImportObjectFact(obj, fact) {
 				o := format(obj)
@@ -347,7 +355,11 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 	}
 
-	for member := range refs { // TODO: stable iteration order
+	sortedRefs := make([]types.Object, 0, len(refs))
+	for ref := range refs {
+		sortedRefs = append(sortedRefs, ref)
+	}
+	for _, member := range sortedRefs {
 		path := findPath(member)
 		if len(path) == 0 {
 			continue
@@ -446,6 +458,7 @@ func dbFuncName(f *types.Func) string {
 }
 
 func affectedSymbols(pkg string, v *osv.Entry) []string {
+	// TODO: memoize
 	var syms []string
 	for _, a := range v.Affected {
 		for _, p := range a.EcosystemSpecific.Imports {
@@ -456,6 +469,22 @@ func affectedSymbols(pkg string, v *osv.Entry) []string {
 		// TODO: should we use GOOS/GOARCH???
 	}
 	return syms
+}
+
+func exportedSymbols(in []string) []string {
+	var out []string
+	for _, s := range in {
+		exported := true
+		for _, part := range strings.Split(s, ".") {
+			if !token.IsExported(part) {
+				exported = false // exported only all parts in the symbol name are exported.
+			}
+		}
+		if exported {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func objectString(obj types.Object, fset *token.FileSet) string {
