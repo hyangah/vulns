@@ -7,13 +7,6 @@
 
 // vulns is an analysis program that reports import paths
 // leading to packages with known vulnerabilities.
-//
-// "vulns dump <package pattern>" runs a helper program
-// that fetches vulnerability information from the remote
-// or local vulnerability database, selects entries
-// relevant to the specified packages, and outputs them
-// in the JSON format the vulns analysis can use to prepare
-// the known vulnerability list.
 package main
 
 import (
@@ -27,6 +20,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
+	"sort"
 	"strings"
 
 	myanalysis "github.com/hyangah/vulns/analysis"
@@ -34,6 +28,7 @@ import (
 	"github.com/hyangah/vulns/internal/checker"
 	"github.com/hyangah/vulns/internal/govulncheck"
 	"github.com/hyangah/vulns/internal/osvutil"
+	"github.com/hyangah/vulns/quickcheck"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/vuln/client"
@@ -64,6 +59,7 @@ func main() {
 		flag.PrintDefaults()
 	}
 
+	// ASK(adonovan): DO WE NEED to export analysisflags.Parse too??
 	analyzers = analysisflags.Parse(analyzers, false)
 
 	args := flag.Args()
@@ -139,60 +135,41 @@ func main() {
 	if err != nil {
 		exitf("failed to setup vulncheck client: %v", err)
 	}
+	summary, _, err := quickcheck.Analyze(context.Background(), pkgs, dbClient)
 
-	pkg2vulns, err := osvutil.FetchOSVEntries(context.Background(), dbClient, pkgs)
-	if err != nil {
-		exitf("failed to fetch osv entries: %v", err)
+	type entry struct {
+		Symbol string
+		Trace  []string
+		Count  int64
 	}
-	if len(pkg2vulns) == 0 {
-		log.Println("zero vulnerability found")
-		return
-	}
-	vulnsJSONFile, err := myanalysis.DumpVulnInfo(pkg2vulns)
-	if err != nil {
-		exitf("failed to write fetched osv entries: %v", err)
-	}
-
-	// Print the results.
-	a.Flags.Set("vulns-json", vulnsJSONFile)
-
-	results := checker.Analyze(pkgs, analyzers)
-
-	type Key struct {
-		Category string
-		Sink     string // vulnerable symbol
-	}
-	type Value struct {
-		Trace []string
-		Count int
-	}
-	summary := make(map[Key]*Value)
-
-	for _, r := range results {
-		for _, d := range r.Diagnostics {
-			entries := strings.Split(d.Message, "\t")
-			sink := ""
-			if len(entries) > 0 {
-				sink = entries[len(entries)-1]
-			}
-			key := Key{Category: d.Category, Sink: sink}
-			value := summary[key]
-			if value == nil {
-				value = &Value{Trace: entries, Count: 1}
-			} else {
-				value.Count++
-				if len(value.Trace) > len(entries) {
-					value.Trace = entries
-				}
-			}
-			summary[key] = value
+	// id -> package -> entry
+	all := map[string]map[string][]entry{}
+	for k, v := range summary {
+		forID := all[k.ID]
+		if forID == nil {
+			forID = map[string][]entry{}
+			all[k.ID] = forID
 		}
+		forPkg := forID[k.PackagePath]
+		forPkg = append(forPkg, entry{k.Symbol, v.Trace, v.Count})
+		forID[k.PackagePath] = forPkg
 	}
-	if len(summary) == 0 {
-		log.Println("no vulnerabilities found")
+	var ids []string
+	for id := range all {
+		ids = append(ids, id)
 	}
-	for key, value := range summary {
-		fmt.Printf("%v\t(%d+ paths)\n\t%v\n", key.Category, value.Count, strings.Join(value.Trace, "\n\t"))
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	count := 0
+	for _, id := range ids {
+		for pkg, entries := range all[id] {
+			count++
+			fmt.Printf("Vulnerability #%d: %v (%v)\n", count, id, pkg)
+			fmt.Println("\nCall stacks in your code:")
+			for _, p := range entries[0].Trace {
+				fmt.Printf("\t%v\n", p)
+			}
+			fmt.Println()
+		}
 	}
 }
 
