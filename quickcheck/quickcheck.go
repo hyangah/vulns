@@ -86,15 +86,20 @@ func Analyze(ctx context.Context, pkgs []*packages.Package, dbClient client.Clie
 				modpath = vul[0].Affected[0].Package.Name
 			}
 			key := Key{ID: id, ModulePath: modpath, PackagePath: pkgpath, Symbol: name}
+			_, paths, found := strings.Cut(d.Message, "|")
+			if !found {
+				paths = d.Message
+			}
+
 			value, ok := summary[key]
 			if !ok {
-				entries := strings.Split(d.Message, "\t")
+				entries := strings.Split(paths, "\t")
 				value = Value{Trace: entries, Count: 1}
 			} else {
 				value.Count++
 				// Replace the previous value only if the new one is shorter.
-				if len(value.Trace) > strings.Count(d.Message, "\t") {
-					value.Trace = strings.Split(d.Message, "\t")
+				if len(value.Trace) > strings.Count(paths, "\t") {
+					value.Trace = strings.Split(paths, "\t")
 				}
 			}
 			summary[key] = value

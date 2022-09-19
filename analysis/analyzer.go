@@ -72,6 +72,7 @@ func (f *vulnFact) String() string {
 	for k, v := range f.Path {
 		b.WriteString(k)
 		b.WriteString(":")
+
 		b.WriteString(strings.Join(v, "\n\t"))
 		b.WriteString(";")
 	}
@@ -346,11 +347,12 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		if pass.ImportPackageFact(pkg, &fact) {
 			for vuln, p := range fact.Path {
 				p = append([]string{format(member)}, p...)
+				id, _, _ := strings.Cut(vuln, ":")
 				pass.Report(analysis.Diagnostic{
 					Pos:      member.Pos(),
 					End:      0,
 					Category: vuln,
-					Message:  strings.Join(p, "\t"),
+					Message:  id + "|" + strings.Join(p, "\t"),
 				})
 				if existing, ok := packageFactPath[vuln]; !ok || len(existing) > len(p) {
 					packageFactPath[vuln] = p
@@ -374,6 +376,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				continue
 			}
 			findings[vuln] = true
+			id, _, _ := strings.Cut(vuln, ":")
 			// TODO(hyangah): report only for packages that are requested to analyze.
 			pass.Report(analysis.Diagnostic{
 				Pos:      member.Pos(),
@@ -383,7 +386,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				// Considered RelatedInformation, but that takes token.Pos, which
 				// is strange given that we need to refer to the findings from
 				// analysis of other packages.
-				Message: strings.Join(p, "\t"),
+				Message: id + "|" + strings.Join(p, "\t"),
 				// TODO(hyangah): suggested fix - upgrade module
 			})
 		}

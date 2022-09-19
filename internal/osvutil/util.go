@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 
+	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/vuln/client"
 	"golang.org/x/vuln/osv"
@@ -115,6 +116,11 @@ func FetchOSVEntries(ctx context.Context, cli client.Client, pkgs []*packages.Pa
 			continue
 		}
 		modPath := m.Path
+		// If module path is not a valid, exportable module path (e.g. contains dot!)
+		// we don't need to lookup module.
+		if err := module.CheckPath(modPath); err != nil {
+			continue
+		}
 		vulns, err := cli.GetByModule(ctx, modPath)
 		if err != nil {
 			return nil, err
