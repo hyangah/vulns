@@ -10,4 +10,4 @@ set -o pipefail
 # Assume the x/vuln repo is a sibling of the tools repo.
 
 rm -f *.go
-cp ../../../../vuln/cmd/govulncheck/internal/govulncheck/*.go .
+cp ../../../vuln/cmd/govulncheck/internal/govulncheck/*.go .
