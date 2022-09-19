@@ -14,6 +14,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"io/ioutil"
 	"log"
 	"os"
 	"sort"
@@ -522,4 +523,24 @@ func objectString0(buf *bytes.Buffer, obj types.Object) {
 		buf.WriteString(".")
 	}
 	buf.WriteString(obj.Name())
+}
+
+// DumpVulnInfo writes the provided osv entry list to a temporary file
+// and returns the file name.
+func DumpVulnInfo(pkg2vulns map[string][]*osv.Entry) (fname string, err error) {
+	vulnsFile, err := ioutil.TempFile("", "vuln")
+	if err != nil {
+		return "", fmt.Errorf("failed to create a temp file: %v", err)
+	}
+	defer func() {
+		err2 := vulnsFile.Close()
+		if err == nil && err2 != nil {
+			fname, err = "", err2
+		}
+	}()
+
+	if err := json.NewEncoder(vulnsFile).Encode(pkg2vulns); err != nil {
+		return "", fmt.Errorf("failed to encode module vulnerability info: %v", err)
+	}
+	return vulnsFile.Name(), nil
 }

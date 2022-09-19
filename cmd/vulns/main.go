@@ -22,7 +22,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"runtime"
@@ -38,7 +37,6 @@ import (
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/vuln/client"
-	"golang.org/x/vuln/osv"
 )
 
 func main() {
@@ -150,7 +148,7 @@ func main() {
 		log.Println("zero vulnerability found")
 		return
 	}
-	vulnsJSONFile, err := dumpToFile(pkg2vulns)
+	vulnsJSONFile, err := myanalysis.DumpVulnInfo(pkg2vulns)
 	if err != nil {
 		exitf("failed to write fetched osv entries: %v", err)
 	}
@@ -201,24 +199,6 @@ func main() {
 func jsonString(v any) string {
 	s, _ := json.MarshalIndent(v, " ", " ")
 	return string(s)
-}
-
-func dumpToFile(pkg2vulns map[string][]*osv.Entry) (fname string, err error) {
-	vulnsFile, err := ioutil.TempFile("", "vuln")
-	if err != nil {
-		return "", fmt.Errorf("failed to create a temp file: %v", err)
-	}
-	defer func() {
-		err2 := vulnsFile.Close()
-		if err == nil && err2 != nil {
-			fname, err = "", err2
-		}
-	}()
-
-	if err := json.NewEncoder(vulnsFile).Encode(pkg2vulns); err != nil {
-		return "", fmt.Errorf("failed to encode module vulnerability info: %v", err)
-	}
-	return vulnsFile.Name(), nil
 }
 
 func dbg(b byte) bool { return strings.IndexByte(checker.Debug, b) >= 0 }
