@@ -5,11 +5,14 @@
 //go:build go1.18
 // +build go1.18
 
-package main
+package osvutil
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"runtime"
 	"strings"
@@ -33,8 +36,9 @@ var (
 	tagRegexp = regexp.MustCompile(`^go(\d+\.\d+)(\.\d+|)((beta|rc|-pre)(\d+))?$`)
 )
 
+// GoTagToSemver replaces go version to semver style version string.
 // This is a modified copy of pkgsite/internal/stdlib:VersionForTag.
-func goTagToSemver(tag string) string {
+func GoTagToSemver(tag string) string {
 	if tag == "" {
 		return ""
 	}
@@ -93,12 +97,12 @@ func walk(pkgs []*packages.Package, fn func(pkg *packages.Package) error) error 
 	return nil
 }
 
-func fetchOSVEntries(ctx context.Context, cli client.Client, pkgs []*packages.Package) (map[string][]*osv.Entry, error) {
+func FetchOSVEntries(ctx context.Context, cli client.Client, pkgs []*packages.Package) (map[string][]*osv.Entry, error) {
 	// fetch osv entries, and organize based on the module.
 	modules := extractModules(pkgs)
 	stdlibModule := &packages.Module{
 		Path:    "stdlib",
-		Version: goTagToSemver(goVersion()),
+		Version: GoTagToSemver(goVersion()),
 	}
 	modules = append(modules, stdlibModule)
 
@@ -261,7 +265,7 @@ func normalizeOSVEntries(_ *packages.Module, vulns []*osv.Entry) []*osv.Entry {
 	return vulns
 }
 
-func findGOVULNDB(cfg *packages.Config) []string {
+func FindGOVULNDB(cfg *packages.Config) []string {
 	for _, kv := range cfg.Env {
 		if strings.HasPrefix(kv, "GOVULNDB=") {
 			return strings.Split(kv[len("GOVULNDB="):], ",")
@@ -271,4 +275,62 @@ func findGOVULNDB(cfg *packages.Config) []string {
 		return strings.Split(GOVULNDB, ",")
 	}
 	return []string{"https://vuln.go.dev"}
+}
+
+// modKey creates a unique string identifier for mod.
+func modKey(mod *packages.Module) string {
+	if mod.Replace != nil {
+		mod = mod.Replace
+	}
+	return fmt.Sprintf("%s@%s", mod.Path, mod.Version)
+}
+
+// extractModules collects modules in `pkgs` up to uniqueness of
+// module path and version.
+func extractModules(pkgs []*packages.Package) []*packages.Module {
+	modMap := map[string]*packages.Module{}
+
+	stdlibModule.Version = GoTagToSemver(goVersion())
+	modMap[stdlibModule.Path] = stdlibModule
+
+	seen := map[*packages.Package]bool{}
+	var extract func(*packages.Package, map[string]*packages.Module)
+	extract = func(pkg *packages.Package, modMap map[string]*packages.Module) {
+		if pkg == nil || seen[pkg] {
+			return
+		}
+		if pkg.Module != nil {
+			if pkg.Module.Replace != nil {
+				modMap[modKey(pkg.Module.Replace)] = pkg.Module
+			} else {
+				modMap[modKey(pkg.Module)] = pkg.Module
+			}
+		}
+		seen[pkg] = true
+		for _, imp := range pkg.Imports {
+			extract(imp, modMap)
+		}
+	}
+	for _, pkg := range pkgs {
+		extract(pkg, modMap)
+	}
+
+	modules := []*packages.Module{}
+	for _, mod := range modMap {
+		modules = append(modules, mod)
+	}
+	return modules
+}
+
+func goVersion() string {
+	if v := os.Getenv("GOVERSION"); v != "" {
+		// Unlikely to happen in practice, mostly used for testing.
+		return v
+	}
+	out, err := exec.Command("go", "env", "GOVERSION").Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to determine go version; skipping stdlib scanning: %v\n", err)
+		return ""
+	}
+	return string(bytes.TrimSpace(out))
 }

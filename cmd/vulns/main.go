@@ -17,7 +17,6 @@
 package main
 
 import (
-	"bytes"
 	context "context"
 	"encoding/json"
 	"errors"
@@ -26,7 +25,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
@@ -36,6 +34,7 @@ import (
 	"github.com/hyangah/vulns/internal/analysisflags"
 	"github.com/hyangah/vulns/internal/checker"
 	"github.com/hyangah/vulns/internal/govulncheck"
+	"github.com/hyangah/vulns/internal/osvutil"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/vuln/client"
@@ -138,12 +137,12 @@ func main() {
 		// TODO: filter analyzers based on RunDespiteError?
 	}
 
-	dbClient, err := client.NewClient(findGOVULNDB(cfg), client.Options{HTTPCache: govulncheck.DefaultCache()})
+	dbClient, err := client.NewClient(osvutil.FindGOVULNDB(cfg), client.Options{HTTPCache: govulncheck.DefaultCache()})
 	if err != nil {
 		exitf("failed to setup vulncheck client: %v", err)
 	}
 
-	pkg2vulns, err := fetchOSVEntries(context.Background(), dbClient, pkgs)
+	pkg2vulns, err := osvutil.FetchOSVEntries(context.Background(), dbClient, pkgs)
 	if err != nil {
 		exitf("failed to fetch osv entries: %v", err)
 	}
@@ -283,30 +282,17 @@ func populateVulnsCatalog(pkgs []*packages.Package) {
 		Tests: true,
 	}
 
-	dbClient, err := client.NewClient(findGOVULNDB(cfg), client.Options{HTTPCache: govulncheck.DefaultCache()})
+	dbClient, err := client.NewClient(osvutil.FindGOVULNDB(cfg), client.Options{HTTPCache: govulncheck.DefaultCache()})
 	if err != nil {
 		exitf("failed to setup vulncheck client: %v", err)
 	}
-	modvulns, err := fetchOSVEntries(context.Background(), dbClient, pkgs)
+	modvulns, err := osvutil.FetchOSVEntries(context.Background(), dbClient, pkgs)
 	if err != nil {
 		exitf("failed to fetch OSV entries: %v", err)
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(modvulns); err != nil {
 		exitf("failed to encode module vulnerability info: %v", err)
 	}
-}
-
-func goVersion() string {
-	if v := os.Getenv("GOVERSION"); v != "" {
-		// Unlikely to happen in practice, mostly used for testing.
-		return v
-	}
-	out, err := exec.Command("go", "env", "GOVERSION").Output()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to determine go version; skipping stdlib scanning: %v\n", err)
-		return ""
-	}
-	return string(bytes.TrimSpace(out))
 }
 
 /*
@@ -343,48 +329,3 @@ func extractModules(pkgs []*packages.Package) []*packages.Module {
 	return modules
 }
 */
-
-// extractModules collects modules in `pkgs` up to uniqueness of
-// module path and version.
-func extractModules(pkgs []*packages.Package) []*packages.Module {
-	modMap := map[string]*packages.Module{}
-
-	stdlibModule.Version = goTagToSemver(goVersion())
-	modMap[stdlibModule.Path] = stdlibModule
-
-	seen := map[*packages.Package]bool{}
-	var extract func(*packages.Package, map[string]*packages.Module)
-	extract = func(pkg *packages.Package, modMap map[string]*packages.Module) {
-		if pkg == nil || seen[pkg] {
-			return
-		}
-		if pkg.Module != nil {
-			if pkg.Module.Replace != nil {
-				modMap[modKey(pkg.Module.Replace)] = pkg.Module
-			} else {
-				modMap[modKey(pkg.Module)] = pkg.Module
-			}
-		}
-		seen[pkg] = true
-		for _, imp := range pkg.Imports {
-			extract(imp, modMap)
-		}
-	}
-	for _, pkg := range pkgs {
-		extract(pkg, modMap)
-	}
-
-	modules := []*packages.Module{}
-	for _, mod := range modMap {
-		modules = append(modules, mod)
-	}
-	return modules
-}
-
-// modKey creates a unique string identifier for mod.
-func modKey(mod *packages.Module) string {
-	if mod.Replace != nil {
-		mod = mod.Replace
-	}
-	return fmt.Sprintf("%s@%s", mod.Path, mod.Version)
-}
