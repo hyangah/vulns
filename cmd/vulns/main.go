@@ -160,7 +160,7 @@ func main() {
 
 	type Key struct {
 		Category string
-		Root     string
+		Sink     string // vulnerable symbol
 	}
 	type Value struct {
 		Trace []string
@@ -171,11 +171,11 @@ func main() {
 	for _, r := range results {
 		for _, d := range r.Diagnostics {
 			entries := strings.Split(d.Message, "\t")
-			root := ""
+			sink := ""
 			if len(entries) > 0 {
-				root = entries[len(entries)-1]
+				sink = entries[len(entries)-1]
 			}
-			key := Key{Category: d.Category, Root: root}
+			key := Key{Category: d.Category, Sink: sink}
 			value := summary[key]
 			if value == nil {
 				value = &Value{Trace: entries, Count: 1}
@@ -192,7 +192,7 @@ func main() {
 		log.Println("no vulnerabilities found")
 	}
 	for key, value := range summary {
-		fmt.Printf("%v\t%v\t(%v paths)\n\t%v\n", key.Category, key.Root, value.Count, strings.Join(value.Trace, "\n\t"))
+		fmt.Printf("%v\t(%d+ paths)\n\t%v\n", key.Category, value.Count, strings.Join(value.Trace, "\n\t"))
 	}
 }
 

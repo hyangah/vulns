@@ -296,7 +296,10 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				// obj itself is vulnerable.
 				o := []string{format(obj)}
 				for _, v := range vulns {
-					k := v + ":" + o[0]
+					// format returns both qualified name and position info.
+					// use only object name part (symbol) as the key.
+					objName, _, _ := strings.Cut(o[0], " ")
+					k := v + ":" + objName
 					path[k] = o
 				}
 			} else if fact := (&vulnFact{}); pass.ImportObjectFact(obj, fact) {
@@ -488,6 +491,7 @@ func exportedSymbols(in []string) []string {
 	return out
 }
 
+// objectString returns qualified object name followed by its position info (file:line:col)
 func objectString(obj types.Object, fset *token.FileSet) string {
 	var buf bytes.Buffer
 	objectString0(&buf, obj)
@@ -497,6 +501,7 @@ func objectString(obj types.Object, fset *token.FileSet) string {
 	return buf.String()
 }
 
+// objectString0 returns a qualified name.
 func objectString0(buf *bytes.Buffer, obj types.Object) {
 	switch obj := obj.(type) {
 	case *types.PkgName:
